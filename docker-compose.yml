@@ -1,0 +1,11 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chai_vibe_code_editor
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    restart: unless-stopped
