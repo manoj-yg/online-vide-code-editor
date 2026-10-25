@@ -23,19 +23,20 @@ jobs:
   ci-check:
     name: Run Pre-Deploy Verification
     uses: ./.github/workflows/ci.yml
+    secrets: inherit
 
   deploy-aws:
     name: Build & Deploy to AWS
     needs: [ci-check]
     runs-on: ubuntu-latest
-    environment: production
     env:
-      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
-      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY || 'online-vide-code-editor' }}
-      ECS_SERVICE: ${{ secrets.ECS_SERVICE || 'online-vide-code-editor-service' }}
-      ECS_CLUSTER: ${{ secrets.ECS_CLUSTER || 'online-vide-code-editor-cluster' }}
-      ECS_TASK_DEFINITION: ${{ secrets.ECS_TASK_DEFINITION || 'online-vide-code-editor-task' }}
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || secrets.ECR_REPOSITORY || 'online-vide-code-editor' }}
+      ECS_SERVICE: ${{ vars.ECS_SERVICE || secrets.ECS_SERVICE || 'online-vide-code-editor-service' }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER || secrets.ECS_CLUSTER || 'online-vide-code-editor-cluster' }}
+      ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION || secrets.ECS_TASK_DEFINITION || 'online-vide-code-editor-task' }}
       CONTAINER_NAME: "app"
+      PRODUCTION_URL: ${{ secrets.PRODUCTION_URL || vars.PRODUCTION_URL || '' }}
 
     steps:
       - name: Checkout Code
@@ -46,7 +47,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -63,16 +64,29 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY || secrets.ECR_REPOSITORY || 'online-vide-code-editor' }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY || secrets.ECR_REPOSITORY || 'online-vide-code-editor' }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Download Active Task Definition (if using ECS)
+      # ------------------------------------------------------------------
+      # Deployment Option A: AWS App Runner (if APP_RUNNER_SERVICE_ARN set)
+      # ------------------------------------------------------------------
+      - name: Deploy to AWS App Runner
+        if: ${{ secrets.APP_RUNNER_SERVICE_ARN != '' }}
+        run: |
+          echo "Triggering deployment for AWS App Runner..."
+          aws apprunner start-deployment --service-arn "${{ secrets.APP_RUNNER_SERVICE_ARN }}"
+
+      # ------------------------------------------------------------------
+      # Deployment Option B: Amazon ECS Fargate (if using ECS task definition)
+      # ------------------------------------------------------------------
+      - name: Download Active ECS Task Definition
         id: get-task-def
+        if: ${{ secrets.APP_RUNNER_SERVICE_ARN == '' }}
         continue-on-error: true
         run: |
-          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION }} --query taskDefinition > task-def.json
+          aws ecs describe-task-definition --task-definition "$ECS_TASK_DEFINITION" --query taskDefinition > task-def.json
 
       - name: Render Amazon ECS Task Definition with New Image
         id: render-web-container
@@ -80,32 +94,33 @@ jobs:
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: task-def.json
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          container-name: "app"
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY || secrets.ECR_REPOSITORY || 'online-vide-code-editor' }}:${{ github.sha }}
 
       - name: Deploy Amazon ECS Task Definition
         if: steps.get-task-def.outcome == 'success'
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.render-web-container.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ vars.ECS_SERVICE || secrets.ECS_SERVICE || 'online-vide-code-editor-service' }}
+          cluster: ${{ vars.ECS_CLUSTER || secrets.ECS_CLUSTER || 'online-vide-code-editor-cluster' }}
           wait-for-service-stability: true
 
+      # ------------------------------------------------------------------
+      # Post-Deployment Automated Smoke & Health Verification
+      # ------------------------------------------------------------------
       - name: Post-Deployment Smoke & Health Verification
-        if: env.PRODUCTION_URL != ''
-        env:
-          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+        if: ${{ secrets.PRODUCTION_URL != '' || vars.PRODUCTION_URL != '' }}
         run: |
           echo "Verifying health endpoint at ${PRODUCTION_URL}/api/health..."
-          for i in {1..10}; do
+          for i in {1..12}; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${PRODUCTION_URL}/api/health" || true)
             if [ "$STATUS" -eq 200 ]; then
               echo "Deployment Verified Successfully! Health status code: 200"
               exit 0
             fi
-            echo "Attempt $i: Received status $STATUS. Retrying in 10 seconds..."
+            echo "Attempt $i: Received HTTP $STATUS. Retrying in 10 seconds..."
             sleep 10
           done
-          echo "Health check verification failed after 10 attempts."
+          echo "Health check verification failed after 12 attempts."
           exit 1

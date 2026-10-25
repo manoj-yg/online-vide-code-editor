@@ -23,6 +23,12 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# Build-time dummy defaults so standalone Next.js compilation succeeds in CI/Docker without external secrets
+ARG DATABASE_URL="mongodb://127.0.0.1:27017/ci_build_dummy?directConnection=true"
+ARG AUTH_SECRET="ci-dummy-secret-minimum-32-characters-for-build"
+ENV DATABASE_URL=$DATABASE_URL
+ENV AUTH_SECRET=$AUTH_SECRET
+
 RUN npx prisma generate
 RUN npm run build
 

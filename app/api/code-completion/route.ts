@@ -28,7 +28,12 @@ export async function POST(request: NextRequest) {
     const { fileContent, cursorLine, cursorColumn, suggestionType, fileName } =
       body;
 
-    if (!fileContent || cursorLine < 0 || cursorColumn < 0 || !suggestionType) {
+    if (
+      typeof fileContent !== "string" ||
+      cursorLine < 0 ||
+      cursorColumn < 0 ||
+      !suggestionType
+    ) {
       return NextResponse.json(
         { error: "Invalid request parameters" },
         { status: 400 }
@@ -217,14 +222,20 @@ Generate suggestion:`;
 }
 
 async function generateSuggestion(prompt: string): Promise<string> {
+  const apiKey = process.env.OLLAMA_API_KEY?.trim();
+  const host = process.env.OLLAMA_HOST?.trim() || "https://ollama.com";
+
+  // If pointing to Ollama Cloud without an API key, skip gracefully
+  if (host.includes("ollama.com") && !apiKey) {
+    return "";
+  }
+
   try {
     const ollama = new Ollama({
-      host: process.env.OLLAMA_HOST || "https://ollama.com",
+      host,
       headers: {
         "Content-Type": "application/json",
-        ...(process.env.OLLAMA_API_KEY
-          ? { Authorization: `Bearer ${process.env.OLLAMA_API_KEY}` }
-          : {}),
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
     });
 
@@ -236,7 +247,7 @@ async function generateSuggestion(prompt: string): Promise<string> {
     });
 
     if (!response?.message?.content) {
-      throw new Error(`LLM API error`);
+      return "";
     }
 
     let suggestion = response.message.content;
@@ -247,7 +258,7 @@ async function generateSuggestion(prompt: string): Promise<string> {
 
     return suggestion;
   } catch (error) {
-    console.error("Error generating suggestion:", error);
-    return "// Unable to generate suggestion at this time.";
+    console.warn("Unable to generate code suggestion:", error instanceof Error ? error.message : error);
+    return "";
   }
 }

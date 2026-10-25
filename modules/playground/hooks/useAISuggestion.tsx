@@ -66,25 +66,34 @@ export const useAISuggestion = (): UseAISuggestionReturn => {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
             });
-            if (!res.ok) throw new Error("Failed to fetch suggestion");
+            if (!res.ok) {
+              setState((prev) => ({ ...prev, isLoading: false }));
+              return;
+            }
 
             const data = await res.json();
-            if (data?.suggestion) {
-              const suggestionText = data?.suggestion?.trim();
-              setState((prev) => ({
-                ...prev,
-                suggestion: suggestionText,
-                position: {
-                  line: cursorPosition.lineNumber,
-                  column: cursorPosition.column,
-                },
-                isLoading: false,
-              }));
-            } else {
-              setState((prev) => ({ ...prev, isLoading: false }));
+            if (data?.suggestion && typeof data.suggestion === "string") {
+              const suggestionText = data.suggestion.trim();
+              if (
+                suggestionText &&
+                !suggestionText.startsWith("// Unable to generate")
+              ) {
+                setState((prev) => ({
+                  ...prev,
+                  suggestion: suggestionText,
+                  position: {
+                    line: cursorPosition.lineNumber,
+                    column: cursorPosition.column,
+                  },
+                  isLoading: false,
+                }));
+                return;
+              }
             }
+
+            setState((prev) => ({ ...prev, isLoading: false }));
           } catch (error) {
-            console.error("Error fetching AI suggestion:", error);
+            console.warn("AI suggestion temporarily unavailable:", error);
             setState((prev) => ({ ...prev, isLoading: false }));
           }
         })();

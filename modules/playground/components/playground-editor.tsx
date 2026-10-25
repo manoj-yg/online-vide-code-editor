@@ -404,7 +404,15 @@ function PlaygroundEditor({
 
     // CRITICAL: Override Tab key with high priority and prevent default Monaco behavior
     if (tabCommandRef.current) {
-      (tabCommandRef.current as IDisposable).dispose();
+      if (
+        typeof tabCommandRef.current === "object" &&
+        tabCommandRef.current !== null &&
+        "dispose" in tabCommandRef.current &&
+        typeof (tabCommandRef.current as any).dispose === "function"
+      ) {
+        (tabCommandRef.current as any).dispose();
+      }
+      tabCommandRef.current = null;
     }
 
     tabCommandRef.current = editor.addCommand(
@@ -589,7 +597,14 @@ function PlaygroundEditor({
         inlineCompletionProviderRef.current = null;
       }
       if (tabCommandRef.current) {
-        (tabCommandRef.current as IDisposable).dispose();
+        if (
+          typeof tabCommandRef.current === "object" &&
+          tabCommandRef.current !== null &&
+          "dispose" in tabCommandRef.current &&
+          typeof (tabCommandRef.current as any).dispose === "function"
+        ) {
+          (tabCommandRef.current as any).dispose();
+        }
         tabCommandRef.current = null;
       }
     };

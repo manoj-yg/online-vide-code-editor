@@ -9,6 +9,8 @@ on:
     branches:
       - master
       - dev-test
+  workflow_call:
+  workflow_dispatch:
 
 jobs:
   lint-and-typecheck:
