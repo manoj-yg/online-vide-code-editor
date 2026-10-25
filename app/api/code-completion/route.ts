@@ -219,15 +219,17 @@ Generate suggestion:`;
 async function generateSuggestion(prompt: string): Promise<string> {
   try {
     const ollama = new Ollama({
-      host: "https://ollama.com",
+      host: process.env.OLLAMA_HOST || "https://ollama.com",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
+        ...(process.env.OLLAMA_API_KEY
+          ? { Authorization: `Bearer ${process.env.OLLAMA_API_KEY}` }
+          : {}),
       },
     });
 
     const response = await ollama.chat({
-      model: "gpt-oss:20b-cloud",
+      model: process.env.OLLAMA_MODEL || "gpt-oss:20b-cloud",
       messages: [{ role: "user", content: prompt }],
       options: { temperature: 0.7 },
       stream: false,
