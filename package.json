@@ -1,5 +1,5 @@
 {
-  "name": "chai-vibe-code-editor",
+  "name": "online-vide-code-editor",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -7,6 +7,7 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate"
   },
   "dependencies": {

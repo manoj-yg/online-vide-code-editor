@@ -1,0 +1,111 @@
+name: CD Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Target Environment"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - staging
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  ci-check:
+    name: Run Pre-Deploy Verification
+    uses: ./.github/workflows/ci.yml
+
+  deploy-aws:
+    name: Build & Deploy to AWS
+    needs: [ci-check]
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY || 'online-vide-code-editor' }}
+      ECS_SERVICE: ${{ secrets.ECS_SERVICE || 'online-vide-code-editor-service' }}
+      ECS_CLUSTER: ${{ secrets.ECS_CLUSTER || 'online-vide-code-editor-cluster' }}
+      ECS_TASK_DEFINITION: ${{ secrets.ECS_TASK_DEFINITION || 'online-vide-code-editor-task' }}
+      CONTAINER_NAME: "app"
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build, Tag, and Push Docker Image to Amazon ECR
+        id: build-image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Download Active Task Definition (if using ECS)
+        id: get-task-def
+        continue-on-error: true
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION }} --query taskDefinition > task-def.json
+
+      - name: Render Amazon ECS Task Definition with New Image
+        id: render-web-container
+        if: steps.get-task-def.outcome == 'success'
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      - name: Deploy Amazon ECS Task Definition
+        if: steps.get-task-def.outcome == 'success'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-web-container.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Post-Deployment Smoke & Health Verification
+        if: env.PRODUCTION_URL != ''
+        env:
+          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+        run: |
+          echo "Verifying health endpoint at ${PRODUCTION_URL}/api/health..."
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${PRODUCTION_URL}/api/health" || true)
+            if [ "$STATUS" -eq 200 ]; then
+              echo "Deployment Verified Successfully! Health status code: 200"
+              exit 0
+            fi
+            echo "Attempt $i: Received status $STATUS. Retrying in 10 seconds..."
+            sleep 10
+          done
+          echo "Health check verification failed after 10 attempts."
+          exit 1

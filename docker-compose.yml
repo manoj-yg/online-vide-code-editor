@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chai_vibe_code_editor
+    container_name: online_vide_code_editor
     ports:
       - "3000:3000"
     env_file:
