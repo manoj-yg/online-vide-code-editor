@@ -1,11 +1,9 @@
 import NextAuth from "next-auth";
-import authConfig from "./auth.config";
-import {
-  defaultLoginRedirect,
-  apiAuthPrefix,
-  publicRoutes,
-  authRoutes,
-} from "@/routes";
+import { NextResponse } from "next/server";
+import { authConfig } from "./auth.config";
+
+export const protectedRoutes: string[] = ["/"];
+export const authRoutes: string[] = ["/auth/sign-in"];
 
 const { auth } = NextAuth(authConfig);
 
@@ -13,29 +11,20 @@ export default auth((req) => {
   const { nextUrl } = req;
   const isLoggedIn = !!req.auth;
 
-  const isApiAuthRoute = nextUrl.pathname.startsWith(apiAuthPrefix);
-  const isPublicRoute = publicRoutes.includes(nextUrl.pathname);
+  const isProtectedRoute = protectedRoutes.includes(nextUrl.pathname);
   const isAuthRoute = authRoutes.includes(nextUrl.pathname);
 
-  if (isApiAuthRoute) {
-    return;
+  if (isAuthRoute && isLoggedIn) {
+    return NextResponse.redirect(new URL("/", nextUrl));
   }
 
-  if (isAuthRoute) {
-    if (isLoggedIn) {
-      return Response.redirect(new URL(defaultLoginRedirect, nextUrl));
-    }
-    return;
+  if (isProtectedRoute && !isLoggedIn) {
+    return NextResponse.redirect(new URL("/auth/sign-in", nextUrl));
   }
 
-  if (!isLoggedIn && !isPublicRoute) {
-    return Response.redirect(new URL("/auth/sign-in", nextUrl));
-  }
-
-  return;
+  return null;
 });
 
-// Optionally, don't invoke Middleware on some paths
 export const config = {
   matcher: ["/((?!.+\\.[\\w]+$|_next).*)", "/", "/(api|trpc)(.*)"],
 };

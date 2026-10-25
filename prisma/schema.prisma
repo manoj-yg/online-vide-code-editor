@@ -1,6 +1,9 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,68 +16,94 @@ datasource db {
 enum UserRole {
   ADMIN
   USER
-  PREMIUM_USER
+  PREMIUM
 }
 
 model User {
-  id            String    @id @default(auto()) @map("_id") @db.ObjectId
-  name          String?   @map("name")
-  email         String?   @unique @map("email")
-  emailVerified DateTime? @map("email_verified")
-  image         String?   @map("image")
-  role          UserRole  @default(USER) @map("role")
-  accounts      Account[]
-  sessions      Session[]
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("users")
+  id                String        @id @default(auto()) @map("_id") @db.ObjectId
+  name              String?
+  email             String        @unique
+  image             String?
+  accounts          Account[]
+  role              UserRole      @default(USER)
+  playground        Playground[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  starredPlayground StarMark[]
+  ChatMessage       ChatMessage[]
 }
 
 model Account {
   id                String  @id @default(auto()) @map("_id") @db.ObjectId
-  userId            String  @db.ObjectId @map("user_id")
-  type              String  @map("type")
-  provider          String  @map("provider")
-  providerAccountId String  @map("provider_account_id")
-  refresh_token     String? @map("refresh_token") @db.String
-  access_token      String? @map("access_token") @db.String
-  expires_at        Int?    @map("expires_at")
-  token_type        String? @map("token_type")
-  scope             String? @map("scope")
-  id_token          String? @map("id_token") @db.String
-  session_state     String? @map("session_state")
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String  @db.ObjectId
+  type              String
+  provider          String
+  providerAccountId String
+  refreshToken      String?
+  accessToken       String?
+  expiresAt         Int?
+  tokenType         String?
+  scope             String?
+  idToken           String?
+  sessionState      String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
   @@index([userId])
-  @@map("accounts")
 }
 
-model Session {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  sessionToken String   @unique @map("session_token")
-  userId       String   @db.ObjectId @map("user_id")
-  expires      DateTime @map("expires")
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("sessions")
+enum Templates {
+  REACT
+  VUE
+  ANGULAR
+  NEXT
+  EXPRESS
+  HONO
 }
 
-model VerificationToken {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  identifier String   @map("identifier")
-  token      String   @unique @map("token")
-  expires    DateTime @map("expires")
+model Playground {
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  title         String
+  description   String?
+  template      Templates      @default(REACT)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  userId        String         @db.ObjectId
+  starMark      StarMark[]
+  templateFiles TemplateFile[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
 
-  @@unique([identifier, token])
-  @@map("verification_tokens")
+model StarMark {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String     @db.ObjectId
+  playgroundId String     @db.ObjectId
+  isMarked     Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  playground   Playground @relation(fields: [playgroundId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, playgroundId])
+}
+
+model TemplateFile {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  content      Json
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  playgroundId String     @unique @db.ObjectId
+  playground   Playground @relation(fields: [playgroundId], references: [id], onDelete: Cascade)
+}
+
+model ChatMessage {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
